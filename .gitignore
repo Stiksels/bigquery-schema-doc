@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# Input files (user's BigQuery exports)
+*.csv
+!requirements.txt
+schema_export*.csv
+*-export*.csv
+bigquery-exports/
+input-files/
+
+# Output directories (generated documentation)
+schema-docs/
+schema-docs-*/
+*-docs/
+*-docs-*/
+output/
+mpm/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# OS files
+Thumbs.db
+.DS_Store
+
