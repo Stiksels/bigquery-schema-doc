@@ -163,7 +163,28 @@ def _generate_mermaid_entity(table: TableSchema) -> list:
         # Mermaid ER diagrams don't support spaces in attribute names
         # Replace spaces with underscores for compatibility
         field_name = column.name.replace(' ', '_')
-        field_line = f" {column.data_type} {field_name}"
+        
+        # Mermaid ER diagrams don't support angle brackets in types
+        # Simplify complex types for Mermaid compatibility
+        data_type = column.data_type
+        if '<' in data_type:
+            # Convert ARRAY<STRING> to ARRAY_STRING, STRUCT<...> to STRUCT, etc.
+            if data_type.startswith('ARRAY<'):
+                inner_type = data_type[6:-1]  # Extract content between <>
+                # Simplify nested types
+                if '<' in inner_type:
+                    # Handle nested structures like ARRAY<STRUCT<...>>
+                    data_type = 'ARRAY_COMPLEX'
+                else:
+                    data_type = f'ARRAY_{inner_type}'
+            elif data_type.startswith('STRUCT<'):
+                data_type = 'STRUCT'
+            else:
+                # Generic complex type - just use base type
+                base_type = data_type.split('<')[0]
+                data_type = base_type
+        
+        field_line = f" {data_type} {field_name}"
         lines.append(field_line)
     
     lines.append("    }")

@@ -15,6 +15,13 @@ class Config:
     output_dir: Path = Path("./schema-docs")
     output_formats: List[str] = None  # ['text', 'uml', 'json', 'yaml', 'csv']
     
+    # Simplified diagram options
+    simplified: bool = False
+    min_relationships: int = 2
+    include_tables: Optional[List[str]] = None
+    exclude_patterns: Optional[List[str]] = None
+    top_n: Optional[int] = None
+    
     def __post_init__(self):
         """Normalize paths and set defaults."""
         self.input_path = Path(self.input_path)

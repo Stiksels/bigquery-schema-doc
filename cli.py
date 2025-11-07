@@ -37,7 +37,45 @@ except ImportError:
     default=['text', 'uml', 'json', 'yaml'],
     help='Output formats to generate (can specify multiple times). Default: text, uml, json, yaml'
 )
-def main(input: Path, input_format: Optional[str], output_dir: Path, formats: tuple) -> None:
+@click.option(
+    '--simplified',
+    is_flag=True,
+    default=False,
+    help='Generate simplified diagram focusing on core entities with many relationships'
+)
+@click.option(
+    '--min-relationships',
+    type=int,
+    default=2,
+    help='Minimum number of relationships required for simplified diagram (default: 2)'
+)
+@click.option(
+    '--include-tables',
+    multiple=True,
+    help='Explicitly include specific tables in simplified diagram (can specify multiple times)'
+)
+@click.option(
+    '--exclude-patterns',
+    multiple=True,
+    help='Patterns to exclude from simplified diagram (e.g., "*_view_bi", "*_dump") (can specify multiple times)'
+)
+@click.option(
+    '--top-n',
+    type=int,
+    default=None,
+    help='Include top N tables by relationship count in simplified diagram'
+)
+def main(
+    input: Path,
+    input_format: Optional[str],
+    output_dir: Path,
+    formats: tuple,
+    simplified: bool,
+    min_relationships: int,
+    include_tables: tuple,
+    exclude_patterns: tuple,
+    top_n: Optional[int]
+) -> None:
     """
     Generate BigQuery schema documentation from manually exported files.
     
@@ -55,6 +93,13 @@ def main(input: Path, input_format: Optional[str], output_dir: Path, formats: tu
         output_dir=output_dir,
         output_formats=formats_list
     )
+    
+    # Add simplified diagram options to config
+    config.simplified = simplified
+    config.min_relationships = min_relationships
+    config.include_tables = list(include_tables) if include_tables else None
+    config.exclude_patterns = list(exclude_patterns) if exclude_patterns else None
+    config.top_n = top_n
     
     # Import here to avoid circular imports
     try:

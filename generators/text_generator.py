@@ -45,35 +45,14 @@ def generate_text_documentation(dataset: DatasetSchema, output_path: Path) -> No
     # Table of Contents
     lines.append("## Table of Contents\n")
     lines.append("- [Overview](#overview)")
+    lines.append("- [Index](#index)")
+    lines.append("- [Relationships](#relationships)")
     lines.append("- [Tables](#tables)")
     for table_name in sorted(dataset.tables.keys()):
+        # Generate anchor from table name (lowercase, spaces and underscores to hyphens)
         anchor = table_name.lower().replace(' ', '-').replace('_', '-')
         lines.append(f"  - [{table_name}](#{anchor})")
-    lines.append("- [Relationships](#relationships)")
-    lines.append("- [Index](#index)\n")
-    
-    # Tables Section
-    lines.append("## Tables\n")
-    
-    for table_name in sorted(dataset.tables.keys()):
-        table = dataset.tables[table_name]
-        lines.extend(_generate_table_section(table, dataset))
-    
-    # Relationships Section
-    all_relationships = dataset.get_all_relationships()
-    if all_relationships:
-        lines.append("## Relationships\n")
-        lines.append("The following relationships have been detected between tables:\n")
-        lines.append("| From Table | From Column | To Table | To Column | Type | Confidence |")
-        lines.append("|------------|-------------|----------|-----------|------|------------|")
-        
-        for rel in all_relationships:
-            confidence_str = f"{rel.confidence:.1f}" if rel.confidence < 1.0 else "High"
-            lines.append(
-                f"| {rel.from_table} | {rel.from_column} | {rel.to_table} | {rel.to_column} | "
-                f"{rel.relationship_type} | {confidence_str} |"
-            )
-        lines.append("")
+    lines.append("")
     
     # Index Section
     lines.append("## Index\n")
@@ -85,17 +64,37 @@ def generate_text_documentation(dataset: DatasetSchema, output_path: Path) -> No
         lines.append(f"- **{table_name}** ({column_count} columns){desc}")
     lines.append("")
     
-    lines.append("### Columns\n")
+    # Relationships Section
+    all_relationships = dataset.get_all_relationships()
+    if all_relationships:
+        # Deduplicate relationships based on (from_table, from_column, to_table, to_column)
+        seen = set()
+        unique_relationships = []
+        for rel in all_relationships:
+            key = (rel.from_table, rel.from_column, rel.to_table, rel.to_column)
+            if key not in seen:
+                seen.add(key)
+                unique_relationships.append(rel)
+        
+        lines.append("## Relationships\n")
+        lines.append("The following relationships have been detected between tables:\n")
+        lines.append("| From Table | From Column | To Table | To Column | Type | Confidence |")
+        lines.append("|------------|-------------|----------|-----------|------|------------|")
+        
+        for rel in unique_relationships:
+            confidence_str = f"{rel.confidence:.1f}" if rel.confidence < 1.0 else "High"
+            lines.append(
+                f"| {rel.from_table} | {rel.from_column} | {rel.to_table} | {rel.to_column} | "
+                f"{rel.relationship_type} | {confidence_str} |"
+            )
+        lines.append("")
+    
+    # Tables Section (moved to end)
+    lines.append("## Tables\n")
+    
     for table_name in sorted(dataset.tables.keys()):
         table = dataset.tables[table_name]
-        lines.append(f"\n#### {table_name}\n")
-        for column in sorted(table.columns, key=lambda c: c.name):
-            mode_str = f" [{column.mode.value}]" if column.mode != ColumnMode.NULLABLE else ""
-            desc_str = f" - {column.description}" if column.description else ""
-            fk_str = ""
-            if column.is_foreign_key:
-                fk_str = f" → {column.foreign_key_table}.{column.foreign_key_column}"
-            lines.append(f"- `{column.name}`: {column.data_type}{mode_str}{desc_str}{fk_str}")
+        lines.extend(_generate_table_section(table, dataset))
     
     # Write to file
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -109,9 +108,8 @@ def _generate_table_section(table: TableSchema, dataset: DatasetSchema) -> list:
     """Generate documentation section for a single table."""
     lines = []
     
-    # Table header
-    anchor = table.name.lower().replace(' ', '-').replace('_', '-')
-    lines.append(f"### {table.name} {{#{anchor}}}\n")
+    # Table header (anchor is auto-generated from heading in most Markdown processors)
+    lines.append(f"### {table.name}\n")
     
     # Table description
     if table.description:

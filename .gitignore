@@ -26,6 +26,7 @@ schema-docs-*/
 *-docs-*/
 output/
 mpm/
+udb/
 
 # IDE
 .vscode/

@@ -28,6 +28,123 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Tables to exclude from schema (BI views, aggregates, etc.)
+EXCLUDED_TABLE_PATTERNS = [
+    r'_view_bi',  # BI view tables (matches _view_bi anywhere in the name)
+]
+
+
+def load_excluded_tables_from_config(input_path: Path) -> List[str]:
+    """
+    Load excluded table names from a config file in the same directory as input.
+    
+    Looks for 'exclude_tables.txt' or 'schema_config.json' in the input file's directory.
+    
+    Args:
+        input_path: Path to the input schema file
+    
+    Returns:
+        List of table names to exclude
+    """
+    excluded = []
+    
+    # Try exclude_tables.txt (one table name per line)
+    exclude_txt = input_path.parent / 'exclude_tables.txt'
+    if exclude_txt.exists():
+        try:
+            with open(exclude_txt, 'r', encoding='utf-8') as f:
+                for line in f:
+                    table_name = line.strip()
+                    if table_name and not table_name.startswith('#'):
+                        excluded.append(table_name)
+            logger.info(f"Loaded {len(excluded)} excluded tables from {exclude_txt}")
+        except Exception as e:
+            logger.warning(f"Failed to read exclude_tables.txt: {e}")
+    
+    # Try schema_config.json
+    config_json = input_path.parent / 'schema_config.json'
+    if config_json.exists():
+        try:
+            import json
+            with open(config_json, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                if 'exclude_tables' in config:
+                    excluded.extend(config['exclude_tables'])
+            logger.info(f"Loaded excluded tables from {config_json}")
+        except Exception as e:
+            logger.warning(f"Failed to read schema_config.json: {e}")
+    
+    return excluded
+
+
+def load_included_tables_from_config(input_path: Path) -> List[str]:
+    """
+    Load included table names from a config file in the same directory as input.
+    
+    These tables will always be included in simplified schemas, regardless of relationship count.
+    Looks for 'include_tables.txt' or 'schema_config.json' in the input file's directory.
+    
+    Args:
+        input_path: Path to the input schema file
+    
+    Returns:
+        List of table names to always include
+    """
+    included = []
+    
+    # Try include_tables.txt (one table name per line)
+    include_txt = input_path.parent / 'include_tables.txt'
+    if include_txt.exists():
+        try:
+            with open(include_txt, 'r', encoding='utf-8') as f:
+                for line in f:
+                    table_name = line.strip()
+                    if table_name and not table_name.startswith('#'):
+                        included.append(table_name)
+            logger.info(f"Loaded {len(included)} always-included tables from {include_txt}")
+        except Exception as e:
+            logger.warning(f"Failed to read include_tables.txt: {e}")
+    
+    # Try schema_config.json
+    config_json = input_path.parent / 'schema_config.json'
+    if config_json.exists():
+        try:
+            import json
+            with open(config_json, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                if 'include_tables' in config:
+                    included.extend(config['include_tables'])
+            logger.info(f"Loaded included tables from {config_json}")
+        except Exception as e:
+            logger.warning(f"Failed to read schema_config.json: {e}")
+    
+    return included
+
+
+def should_exclude_table(table_name: str, excluded_table_names: Optional[List[str]] = None) -> bool:
+    """
+    Check if a table should be excluded from the schema.
+    
+    Args:
+        table_name: Name of the table to check
+        excluded_table_names: Optional list of specific table names to exclude
+    
+    Returns:
+        True if table should be excluded, False otherwise
+    """
+    # Check specific table names (exact match, case-insensitive)
+    if excluded_table_names:
+        table_name_lower = table_name.lower()
+        for excluded_name in excluded_table_names:
+            if table_name_lower == excluded_name.lower():
+                return True
+    
+    # Check patterns
+    for pattern in EXCLUDED_TABLE_PATTERNS:
+        if re.search(pattern, table_name, re.IGNORECASE):
+            return True
+    return False
+
 
 def parse_csv_schema(file_path: Path) -> DatasetSchema:
     """
@@ -42,6 +159,9 @@ def parse_csv_schema(file_path: Path) -> DatasetSchema:
     - table_description (optional)
     """
     logger.info(f"Parsing CSV file: {file_path}")
+    
+    # Load product-specific excluded tables from config
+    excluded_table_names = load_excluded_tables_from_config(file_path)
     
     try:
         df = pd.read_csv(file_path)
@@ -89,6 +209,11 @@ def parse_csv_schema(file_path: Path) -> DatasetSchema:
     for table_name, group in df.groupby('table_name'):
         table_name = str(table_name).strip()
         if not table_name:
+            continue
+        
+        # Skip excluded tables (e.g., BI views)
+        if should_exclude_table(table_name, excluded_table_names):
+            logger.debug(f"Skipping excluded table: {table_name}")
             continue
         
         # Get table description (should be same for all rows of same table)
@@ -149,6 +274,9 @@ def parse_json_schema(file_path: Path) -> DatasetSchema:
     """
     logger.info(f"Parsing JSON file: {file_path}")
     
+    # Load product-specific excluded tables from config
+    excluded_table_names = load_excluded_tables_from_config(file_path)
+    
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
@@ -169,7 +297,7 @@ def parse_json_schema(file_path: Path) -> DatasetSchema:
                 # Format: Array of table objects
                 for table_data in data:
                     table = _parse_table_from_json(table_data)
-                    if table:
+                    if table and not should_exclude_table(table.name, excluded_table_names):
                         tables[table.name] = table
                         dataset.add_table(table)
             elif isinstance(first_item, dict) and 'name' in first_item:
@@ -177,7 +305,7 @@ def parse_json_schema(file_path: Path) -> DatasetSchema:
                 # Need table name from filename or default
                 table_name = _extract_table_name_from_path(file_path)
                 table = _parse_bigquery_schema_format(data, table_name)
-                if table:
+                if table and not should_exclude_table(table.name, excluded_table_names):
                     tables[table.name] = table
                     dataset.add_table(table)
     elif isinstance(data, dict):
@@ -185,14 +313,14 @@ def parse_json_schema(file_path: Path) -> DatasetSchema:
         if 'columns' in data:
             # Single table
             table = _parse_table_from_json(data)
-            if table:
+            if table and not should_exclude_table(table.name, excluded_table_names):
                 tables[table.name] = table
                 dataset.add_table(table)
         elif 'tables' in data:
             # Dataset with multiple tables
             for table_data in data['tables']:
                 table = _parse_table_from_json(table_data)
-                if table:
+                if table and not should_exclude_table(table.name, excluded_table_names):
                     tables[table.name] = table
                     dataset.add_table(table)
     
@@ -281,21 +409,49 @@ def detect_relationships(dataset: DatasetSchema) -> None:
     - user_id -> users.id
     - order_id -> orders.id
     - foreign_key_table_id -> foreign_key_table.id
+    - locationId -> places.id (special case)
     """
     logger.info("Detecting relationships between tables")
     
     table_names = set(dataset.tables.keys())
+    
+    # Special mappings for common patterns
+    special_mappings = {
+        'locationid': 'places',
+        'location_id': 'places',
+        'placeid': 'places',
+        'place_id': 'places',
+    }
     
     for table_name, table in dataset.tables.items():
         for column in table.columns:
             # Pattern: column_name ends with '_id' and matches a table name
             column_name_lower = column.name.lower()
             
+            # Check special mappings first
+            if column_name_lower in special_mappings:
+                target_table = special_mappings[column_name_lower]
+                if target_table in table_names:
+                    relationship = Relationship(
+                        from_table=table_name,
+                        from_column=column.name,
+                        to_table=target_table,
+                        to_column='id',
+                        relationship_type='foreign_key',
+                        confidence=1.0
+                    )
+                    table.add_relationship(relationship)
+                    column.is_foreign_key = True
+                    column.foreign_key_table = target_table
+                    column.foreign_key_column = 'id'
+                    continue
+            
             # Check for common foreign key patterns
             patterns = [
                 (r'^(.+)_id$', r'\1'),  # user_id -> user
                 (r'^(.+)_uuid$', r'\1'),  # user_uuid -> user
                 (r'^(.+)_key$', r'\1'),  # user_key -> user
+                (r'^(.+?)id$', r'\1'),  # organizerId -> organizer (camelCase)
             ]
             
             for pattern, replacement in patterns:
@@ -336,7 +492,7 @@ def detect_relationships(dataset: DatasetSchema) -> None:
                         column.foreign_key_column = 'id'
                         break
                     
-                    # Add 's' to end (user -> users)
+                    # Add 's' to end (user -> users, organizer -> organizers)
                     plural = potential_table + 's'
                     if plural in table_names:
                         relationship = Relationship(
